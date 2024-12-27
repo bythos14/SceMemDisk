@@ -1,0 +1,12 @@
+SceMemDisk:
+  attributes: 0
+  version:
+    major: 1
+    minor: 0
+  main:
+    start: _sceMemDiskModuleStart
+  modules:
+    kubridge:
+      syscall: true
+      functions:
+        - sceMemDiskMount

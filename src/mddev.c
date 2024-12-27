@@ -1,0 +1,4 @@
+int mddev_initialize() 
+{
+    
+}

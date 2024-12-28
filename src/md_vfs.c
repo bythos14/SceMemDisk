@@ -1,22 +1,38 @@
 #include <psp2kern/kernel/modulemgr.h>
 #include <psp2kern/kernel/iofilemgr.h>
+#include <psp2kern/kernel/sysmem/uid_puid.h>
+
+#include <stdlib.h>
 
 #include "vfs/vfs.h"
 #include "mddev.h"
+#include "memdisk.h"
 
 int md_vfs_mount(SceVfsOpMountArgs *argp)
 {
-	return 0; // Return success or handle as needed
+	SceVfsMount *mnt = argp->mnt;
+
+	mnt->availableEntryNum = 2;
+	mnt->defaultIoCacheSize = 0;
+	return 0;
 }
 
 // Callback function for vfs_umount
 int md_vfs_umount(SceVfsOpUmountArgs *argp)
 {
-	return 0; // Return success or handle as needed
+	return 0x80010010;
 }
 
 int md_vfs_set_root(SceVfsOpSetRootArgs *argp)
 {
+	SceVfsVnode *vp = argp->vp;
+	vp->dd = NULL;
+	vp->type = 0x10020;
+	vp->state = 0x1;
+	vp->mnt = argp->mnt;
+	vp->aclData[0] = vp->aclData[1] = 0;
+	vp->size = 0;
+
 	return 0; // Return success or handle as needed
 }
 
@@ -27,16 +43,68 @@ int md_vfs_init(SceVfsOpInitArgs *argp)
 }
 
 // Callback function for vfs_devctl
-int md_vfs_devctl(SceVfsOpDevctlArg *arg)
+int md_vfs_devctl(SceVfsOpDevctlArg *argp)
 {
-	// Empty function body
-	return 0; // Return success or handle as needed
+	const void *arg = argp->arg;
+	SceSize argLen = argp->argLen;
+	void *buf = argp->buf;
+	SceSize bufLen = argp->bufLen;
+	switch (argp->cmd) {
+	case 1:
+		if ((arg == NULL) || (argLen != 4) || (buf == NULL) || (bufLen != 4)) {
+			return 0x80010016;
+		}
+
+		SceUID block = ((SceMemDiskEnableArg *)arg)->block;
+		if (block & 0x40000000) {
+			block = kscePUIDtoGUID(0, block);
+			if (block < 0) {
+				return block;
+			}
+		}
+
+		int devIndex = mddev_mkdev(block);
+		if (devIndex < 0) {
+			return devIndex;
+		}
+
+		((SceMemDiskEnableResult *)buf)->index = devIndex;
+	default:
+		return 0x80010013;
+	}
+
+	return 0;
 }
 
 int md_vfs_open(SceVopOpenArgs *argp)
 {
-	// Empty function body
-	return 0; // Return success or handle as needed
+	SceVfsVnode *vp = argp->vp;
+	SceVfsFile *file = argp->file;
+	mddev_object *dev = vp->nodeData;
+	int ret;
+
+	if (dev == NULL) {
+		return 0x80010002;
+	}
+
+	if ((ret = mddev_lock(dev)) < 0) {
+		return ret;
+	}
+
+	if (MDDEV_STAT_IS_VALID(dev) && (dev->stat != MDDEV_STAT_ENABLED)) {
+		ret = 0x80010002;
+		goto exit;
+	} else if (!MDDEV_STAT_IS_VALID(dev)) {
+		ret = 0x80010013;
+		goto exit;
+	}
+
+	file->fd = (SceUInt32)dev;
+	vp->size = dev->blockSize;
+
+exit:
+	mddev_unlock(dev);
+	return ret; // Return success or handle as needed
 }
 
 int md_vfs_close(SceVopCloseArgs *argp)
@@ -47,44 +115,189 @@ int md_vfs_close(SceVopCloseArgs *argp)
 
 int md_vfs_lookup(SceVopLookupArgs *argp)
 {
-	// Empty function body
+	SceVfsVnode *dvp = argp->dvp;
+
+	int index = strtol(argp->path->name, NULL, 10);
+
+	if (index != 0 && index != 1) {
+		return 0x80010002;
+	}
+
+	mddev_object *dev = mddev_get_object(index);
+	
+	int stat = mddev_get_stat(dev);
+	if (stat != MDDEV_STAT_ENABLED) {
+		return 0x80010002;
+	}
+
+	SceVfsVnode *vp;
+	if ((stat = vfsGetNewVnode(dvp->mnt, dvp->mnt->mntVfsInf->defaultVops, 0, &vp)) < 0) {
+		return stat;
+	}
+
+	vfsLockVnode(vp);
+	vp->mnt = dvp->mnt;
+	vp->state = 1;
+	vp->type = 0x2000;
+	vp->nodeData = dev;
+	vp->aclData[0] = 0xF0F;
+	vp->aclData[1] = 0;
+	vp->size = 0;
+
+	*argp->vpp = vp;
+
 	return 0; // Return success or handle as needed
 }
 
 SceSSize md_vfs_read(SceVopReadArgs *argp)
 {
-	// Empty function body
-	return 0; // Return number of bytes read (0 for no operation)
+	SceVfsVnode *vp = argp->vp;
+	SceVfsFile *file = argp->file;
+	SceSize nbyte = argp->nbyte;
+	void *buf = argp->buf;
+
+	if (vp->nodeData == NULL) {
+		return (int)0x80010013;
+	}
+
+	if (nbyte & MDDEV_SECTOR_MASK) {
+		return (int)0x80010022;
+	}
+
+	SceOff offset = file->position;
+
+	if ((offset + nbyte) > vp->size) {
+		return 0x80010021;
+	}
+
+	SceSSize ret = mddev_read(vp->nodeData, buf, offset >> MDDEV_SECTOR_SHIFT, nbyte >> MDDEV_SECTOR_SHIFT);
+
+	if (ret >= 0) {
+		file->position += ret;
+	}
+
+	return ret;
 }
 
 SceSSize md_vfs_write(SceVopWriteArgs *argp)
 {
-	// Empty function body
-	return 0; // Return number of bytes written (0 for no operation)
+	SceVfsVnode *vp = argp->vp;
+	SceVfsFile *file = argp->file;
+	SceSize nbyte = argp->nbyte;
+	const void *buf = argp->buf;
+
+	if (vp->nodeData == NULL) {
+		return (int)0x80010013;
+	}
+
+	if (nbyte & MDDEV_SECTOR_MASK) {
+		return (int)0x80010022;
+	}
+
+	SceOff offset = file->position;
+
+	if ((offset + nbyte) > vp->size) {
+		return 0x80010021;
+	}
+
+	SceSSize ret = mddev_write(vp->nodeData, buf, offset >> MDDEV_SECTOR_SHIFT, nbyte >> MDDEV_SECTOR_SHIFT);
+
+	if (ret >= 0) {
+		file->position += ret;
+	}
+
+	return ret;
 }
 
 SceOff md_vfs_lseek(SceVopLseekArgs *argp)
 {
-	// Empty function body
-	return 0; // Return the new offset (0 for no operation)
+	SceVfsVnode *vp = argp->vp;
+	SceVfsFile *file = argp->file;
+	SceOff offset = argp->offset;
+	SceUInt whence = argp->where;
+
+	if (vp->nodeData == NULL) {
+		return (int)0x80010013;
+	}
+
+	if (offset & MDDEV_SECTOR_MASK) {
+		return (int)0x80010022;
+	}
+
+	switch (whence) {
+	case SCE_SEEK_SET: // Literal offset into the file
+		break;
+	case SCE_SEEK_CUR:
+		offset += file->position;
+		break;
+	case SCE_SEEK_END:
+		offset += vp->size;
+		break;
+	default:
+		return (int)0x80010016;
+	}
+
+	if (offset > vp->size) {
+		return (int)0x80010021;
+	}
+
+	file->position = offset;
+
+	return offset; // Return the new offset (0 for no operation)
 }
 
 int md_vfs_remove(SceVopRemoveArgs *argp)
 {
-	// Empty function body
-	return 0; // Return success or handle as needed
+	SceVfsVnode *vp = argp->vp;
+	mddev_object *dev = vp->nodeData;
+
+	vp->nodeData = NULL;
+
+	return mddev_rmdev(dev);
 }
 
 SceSSize md_vfs_pread(SceVopPreadArgs *argp)
 {
-	// Empty function body
-	return 0; // Return number of bytes read (0 for no operation)
+	SceVfsVnode *vp = argp->vp;
+	SceSize nbyte = argp->nbyte;
+	void *buf = argp->buf;
+	SceOff offset = argp->offset;
+
+	if (vp->nodeData == NULL) {
+		return (int)0x80010013;
+	}
+
+	if ((offset & MDDEV_SECTOR_MASK) || (nbyte & MDDEV_SECTOR_MASK)) {
+		return (int)0x80010022;
+	}
+
+	if ((offset + nbyte) > vp->size) {
+		return 0x80010021;
+	}
+
+	return mddev_read(vp->nodeData, buf, offset >> MDDEV_SECTOR_SHIFT, nbyte >> MDDEV_SECTOR_SHIFT);
 }
 
 SceSSize md_vfs_pwrite(SceVopPwriteArgs *argp)
 {
-	// Empty function body
-	return 0; // Return number of bytes written (0 for no operation)
+	SceVfsVnode *vp = argp->vp;
+	SceSize nbyte = argp->nbyte;
+	const void *buf = argp->buf;
+	SceOff offset = argp->offset;
+
+	if (vp->nodeData == NULL) {
+		return 0x80010013;
+	}
+
+	if ((offset & MDDEV_SECTOR_MASK) || (nbyte & MDDEV_SECTOR_MASK)) {
+		return 0x80010022;
+	}
+
+	if ((offset + nbyte) > vp->size) {
+		return 0x80010021;
+	}
+
+	return mddev_write(vp->nodeData, buf, offset >> MDDEV_SECTOR_SHIFT, nbyte >> MDDEV_SECTOR_SHIFT);
 }
 
 int md_vfs_inactive(SceVopInactiveArgs *argp)
@@ -125,18 +338,19 @@ static SceVfsInfo md_vfs_info = {
 int md_vfs_initialize()
 {
 	int ret = 0;
-	if (ret = mddev_initialize() < 0) {
+	if ((ret = mddev_initialize()) < 0) {
 		return ret;
 	}
 
-	if (ret = ksceVfsAddVfs(&md_vfs_info) < 0) {
+	if ((ret = ksceVfsAddVfs(&md_vfs_info)) < 0) {
 		return ret;
 	}
 
-	
 	if ((ret = ksceIoMount(2, NULL, 0, 0, 0, 0)) < 0) {
 		return ret;
 	}
+
+	return ret;
 }
 
 int _sceMemDiskModuleStart(SceSize args, void *argp)

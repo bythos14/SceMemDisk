@@ -5,8 +5,3 @@ SceMemDisk:
     minor: 0
   main:
     start: _sceMemDiskModuleStart
-  modules:
-    kubridge:
-      syscall: true
-      functions:
-        - sceMemDiskMount

@@ -15,7 +15,7 @@ int ksceVfsDeleteVfs(const char *name, SceVfsInfo **ppVfsInfo);
 SceUID vfsAllocateFile(SceVfsVnode *vp, SceVfsFile **ppFile, const char *name);
 int vfsFreeFile(SceVfsVnode *vp, SceUID fd);
 
-int vfsGetNewVnode(SceVfsMount *mnt, SceVopTable *vops, SceUInt unk, SceVfsVnode *vpp);
+int vfsGetNewVnode(SceVfsMount *mnt, SceVopTable *vops, SceUInt unk, SceVfsVnode **vpp);
 int vfsFreeVnode(SceVfsVnode *vp);
 
 int vfsLockVnode(SceVfsVnode *vp);

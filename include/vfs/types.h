@@ -143,8 +143,8 @@ typedef struct SceVfsVnode {
         
         struct SceVopTable *vop_tbl; 
         
-        uint64_t size;
-        uint64_t aclData;
+        SceUInt64 size;
+        SceUInt32 aclData[2];
 
         struct SceVfsFile *fdList;
         SceUInt32 fdNum;
@@ -165,7 +165,7 @@ typedef struct SceVfsFile {
     SceUInt32 isDir;
     SceUInt32 openMode;
 
-    SceOff fileOffset;
+    SceOff position;
 
     SceUInt32 state;
     SceUID pid;
@@ -231,10 +231,10 @@ typedef struct SceVfsOpDevctlArg {
 	struct SceVfsMount *mnt;
 	const char *dev;
 	unsigned int cmd;
-    const void *inData;
-    SceSize inLen;
-    void *outData;
-    SceSize outLen;
+    const void *arg;
+    SceSize argLen;
+    void *buf;
+    SceSize bufLen;
 } SceVfsOpDevctlArg;
 
 typedef struct SceVfsOpDecodePathElemArgs { 
@@ -302,14 +302,14 @@ typedef struct SceVopLookupArgs {
 typedef struct SceVopReadArgs {
 	SceVfsVnode *vp;
 	SceVfsFile *file;
-	void *data;
+	void *buf;
 	SceSize nbyte;
 } SceVopReadArgs;
 
 typedef struct SceVopWriteArgs {
 	SceVfsVnode *vp;
 	SceVfsFile *file;
-	const void *data;
+	const void *buf;
 	SceSize nbyte;
 } SceVopWriteArgs;
 
@@ -425,7 +425,7 @@ typedef struct SceVopRenameArgs {
 typedef struct SceVopPreadArgs {
 	SceVfsVnode *vp;
 	SceVfsFile *file;
-    void *data;
+    void *buf;
     SceSize nbyte;
     SceOff offset;
 } SceVopPreadArgs;
@@ -433,7 +433,7 @@ typedef struct SceVopPreadArgs {
 typedef struct SceVopPwriteArgs {
 	SceVfsVnode *vp;
 	SceVfsFile *file;
-    const void *data;
+    const void *buf;
     SceSize nbyte;
     SceOff offset;
 } SceVopPwriteArgs;

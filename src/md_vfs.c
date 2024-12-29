@@ -27,8 +27,8 @@ int md_vfs_set_root(SceVfsOpSetRootArgs *argp)
 {
 	SceVfsVnode *vp = argp->vp;
 	vp->dd = NULL;
-	vp->type = 0x10020;
-	vp->state = 0x1;
+	vp->type = SCE_VNODE_TYPE_DEVROOTDIR;
+	vp->state = SCE_VNODE_STATE_ACTIVE;
 	vp->mnt = argp->mnt;
 	vp->aclData[0] = vp->aclData[1] = 0;
 	vp->size = 0;
@@ -137,10 +137,10 @@ int md_vfs_lookup(SceVopLookupArgs *argp)
 
 	vfsLockVnode(vp);
 	vp->mnt = dvp->mnt;
-	vp->state = 1;
-	vp->type = 0x2000;
+	vp->state = SCE_VNODE_STATE_ACTIVE;
+	vp->type = SCE_VNODE_TYPE_DEV;
 	vp->nodeData = dev;
-	vp->aclData[0] = 0xF0F;
+	vp->aclData[0] = 0606;
 	vp->aclData[1] = 0;
 	vp->size = 0;
 
@@ -333,7 +333,10 @@ static SceVfsInfo md_vfs_info = {
 		.vop_pwrite = md_vfs_pwrite,
 		.vop_inactive = md_vfs_inactive,
 		.vop_sync = md_vfs_sync
-	}};
+	},
+	
+	.type = SCE_VFS_TYPE_DEVFS
+	};
 
 int md_vfs_initialize()
 {

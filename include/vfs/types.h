@@ -7,6 +7,8 @@
 
 #include <stdbool.h>
 
+#include "defs.h"
+
 #ifdef __cplusplus
 extern "C" {
 #endif
@@ -57,8 +59,9 @@ typedef struct SceVfsMount {
     SceUID allocator;
     
     SceUInt32 state;
-    SceUInt32 fsType;
-    SceUInt32 devType;
+    SceUInt8 fsType;
+    SceUInt16 opt;
+    SceUInt32 mntFlags;
     
     SceVfsVnode *vnodeList;
     SceUInt32 vnodeNum;

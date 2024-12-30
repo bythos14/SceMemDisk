@@ -1,13 +1,22 @@
 #ifndef _PSP2KERN_VFS_TYPES_H_
 #define _PSP2KERN_VFS_TYPES_H_
 
+/**
+ * @file types.h
+ * @author your name (you@domain.com)
+ * @brief Structures specifically relevant to VFS implementations
+ * @version 0.1
+ * @date 2024-12-29
+ * 
+ * @copyright Copyright (c) 2024
+ * 
+ */
+
 #include <psp2kern/types.h>
 #include <psp2common/kernel/iofilemgr.h>
 #include <psp2kern/kernel/threadmgr/fast_mutex.h>
 
 #include <stdbool.h>
-
-#include "defs.h"
 
 #ifdef __cplusplus
 extern "C" {
@@ -26,6 +35,9 @@ typedef struct SceVfsPath {
     char *path;
 } SceVfsPath;
 
+#define SCE_VFS_TYPE_FS    (0x0000000)
+#define SCE_VFS_TYPE_DEVFS (0x00000010)
+
 /**
  * VFS Info defining a VFS Implementation
  */
@@ -35,7 +47,7 @@ typedef struct SceVfsInfo {
     SceSize vfsNameLen;
     
     SceUInt32 refCount;
-    SceUInt32 type;
+    SceUInt32 type;      //!< One of SCE_VFS_TYPE_*
     
     SceVopTable *defaultVops;
     void *vfsData;
@@ -51,6 +63,32 @@ typedef struct SceVfsMountData {
     SceUInt32 mntId;
 } SceVfsMountData;
 
+#define SCE_VFS_FS_TYPE_FS      (0x01) //!< All exfat mounts
+#define SCE_VFS_FS_TYPE_PFS     (0x03) //!< PFS mounts
+#define SCE_VFS_FS_TYPE_HOSTFS  (0x04) //!< host0:
+#define SCE_VFS_FS_TYPE_BLKDEV  (0x10) //!< sdstor0:, md0:
+#define SCE_VFS_FS_TYPE_CHRDEV  (0x20) //!< tty0:
+
+#define SCE_VFS_MOUNT_TYPE_PFS          (0x00000001) //!< PFS mounts
+#define SCE_VFS_MOUNT_TYPE_FSROOT       (0x00000002) //!< Standard root file system
+#define SCE_VFS_MOUNT_TYPE_DEVFS        (0x00000003) //!< Device File System
+#define SCE_VFS_MOUNT_TYPE_STACKFS      (0x00000005) //!< Loop File System (File system mounted from a file)
+#define SCE_VFS_MOUNT_TYPE_HOSTFS       (0x00000006) //!< Hostfs
+#define SCE_VFS_MOUNT_FLAG_TYPE_MASK    (0x000000FF)
+#define SCE_VFS_MOUNT_FLAG_RDONLY       (0x00001000) //!< Read-only mount
+#define SCE_VFS_MOUNT_FLAG_NOBUF        (0x00002000) //!< Disables VFS Buffer cache
+/**
+ * Files for this mountpoint are treated as numbered extensions of the assignName.
+ *
+ * Example: tty mountpoint devices (tty0:, tty1:) internally are handled /tty/tty0:
+ */
+#define SCE_VFS_MOUNT_FLAG_NUMBERED     (0x00004000)
+#define SCE_VFS_MOUNT_FLAG_REMOTE       (0x00008000) //!< Prevents ncache entry of failed lookups
+#define SCE_VFS_MOUNT_FLAG_INTERNAL     (0x00010000)
+#define SCE_VFS_MOUNT_FLAG_EXTERNAL     (0x00020000)
+#define SCE_VFS_MOUNT_FLAG_WRITE_CACHE  (0x00040000) //!< Allow write-caching. Default behavior is to flush buffer cache after write.
+#define SCE_VFS_MOUNT_FLAG_NO_RECLAIM   (0x00100000) //!< Prevents Vnodes from being reclaimed. Only set internally for devfs 
+
 typedef struct SceVfsMount {
     SceKernelFastMutex fastMutex;
 
@@ -59,9 +97,9 @@ typedef struct SceVfsMount {
     SceUID allocator;
     
     SceUInt32 state;
-    SceUInt8 fsType;
+    SceUInt8 fsType;    //!< One of SCE_VFS_FS_TYPE_*
     SceUInt16 opt;
-    SceUInt32 mntFlags;
+    SceUInt32 mntFlags; //!< ORed together SCE_VFS_MOUNT_FLAG_* flags
     
     SceVfsVnode *vnodeList;
     SceUInt32 vnodeNum;
@@ -95,18 +133,36 @@ typedef struct SceVfsMount {
 } SceVfsMount;
 
 typedef struct SceVfsNcache {
-    struct SceVfsNcache *next; /* Next ncache entry in directory */
-    struct SceVfsNcache *ncdd; /* Parent ncache entry */
-    struct SceVfsNcache *listNext; /* Next ncache entry in global ncache list */
-    struct SceVfsNcache *nnc; /* Child ncache entry (Used for directory entries) */
+    struct SceVfsNcache *next; //1< Next ncache entry in directory
+    struct SceVfsNcache *ncdd; //!< Parent ncache entry
+    struct SceVfsNcache *listNext; //!< Next ncache entry in global ncache list
+    struct SceVfsNcache *nnc; //!< Child ncache entry (Used for directory entries)
     
-    SceVfsVnode *vp; /* Vnode ptr */
+    SceVfsVnode *vp;
 
     SceUInt type;
 
     SceSize nameLen;
     char *name;
 } SceVfsNcache;
+
+#define SCE_VNODE_TYPE_REG     (0x00000001) //!< Regular file
+#define SCE_VNODE_TYPE_DIR     (0x00000002) //!< Regular directory
+#define SCE_VNODE_TYPE_CHR     (0x00000010) //!< Character file
+#define SCE_VNODE_TYPE_ROOT    (0x00001000) //!< Root vnode
+#define SCE_VNODE_TYPE_DEV     (0x00002000) //!< Device vnode
+#define SCE_VNODE_TYPE_MOUNTED (0x00004000) //!< Vnode used as a backing for a mountpoint
+
+#define SCE_VNODE_TYPE_CHRDEV        (SCE_VNODE_TYPE_DEV | SCE_VNODE_TYPE_CHR)
+#define SCE_VNODE_TYPE_ROOTDIR       (SCE_VNODE_TYPE_ROOT | SCE_VNODE_TYPE_DIR) //!< Root directory
+#define SCE_VNODE_TYPE_ROOTDIR_DEVFS (0x10000 | 0x20) //!< Root directory on devfs mountpoints
+
+#define SCE_VNODE_STATE_ACTIVE    (0x00000001)
+#define SCE_VNODE_STATE_DELETED   (0x00000100)
+#define SCE_VNODE_STATE_UNMOUNTED (0x00000200)
+#define SCE_VNODE_STATE_WHITEOUT  (0x00000400)
+#define SCE_VNODE_STATE_RECLAIMED (0x00002000)
+#define SCE_VNODE_STATE_NEW       (0x00008000)
 
 typedef struct SceVfsVnode {
     struct {
@@ -140,9 +196,9 @@ typedef struct SceVfsVnode {
         SceUID allocator;
         
         struct SceVfsNcache *ncache;
-        
-        SceUInt32 state;
-        SceUInt32 type;
+
+        SceUInt32 state; //!< One of SCE_VNODE_STATE_*
+        SceUInt32 type;  //!< ORed together SCE_VNODE_TYPE_* flags
         
         struct SceVopTable *vop_tbl; 
         
@@ -223,11 +279,11 @@ typedef struct SceVfsOpSyncArgs {
 } SceVfsOpSyncArgs;
 
 typedef struct SceVfsOpInitArgs {
-	struct SceVfsAddParam *pParam;
+	SceVfsInfo *vfsInf;
 } SceVfsOpInitArgs;
 
 typedef struct SceVfsOpFiniArgs {
-	struct SceVfsAddParam *pParam;
+    SceVfsInfo *vfsInf;
 } SceVfsOpFiniArgs;
 
 typedef struct SceVfsOpDevctlArg {
@@ -383,18 +439,18 @@ typedef struct SceVopChstatArgs {
 	int bit;
 } SceVopChstatArgs;
 
-typedef struct SceVopChstatByFdArgs {
+typedef struct SceVopFchstatArgs {
 	SceVfsVnode *pNode;
 	SceVfsFile *file;
 	SceIoStat *stat;
 	SceUInt32 bit;
-} SceVopChstatByFdArgs;
+} SceVopFchstatArgs;
 
-typedef struct SceVopGetstatByFdArgs {
+typedef struct SceVopFgetstatArgs {
 	SceVfsVnode *vp;
 	SceVfsFile *file;
 	SceIoStat *stat;
-} SceVopGetstatByFdArgs;
+} SceVopFgetstatArgs;
 
 typedef struct SceVopInactiveArgs {
 	SceVfsVnode *vp;
@@ -498,8 +554,8 @@ typedef struct SceVopTable
 
     int (*vop_sync)(SceVopSyncArgs *argp);
 
-    int (*vop_fgetstat)(SceVopGetstatByFdArgs *argp);
-    int (*vop_fchstat)(SceVopChstatByFdArgs *argp);
+    int (*vop_fgetstat)(SceVopFgetstatArgs *argp);
+    int (*vop_fchstat)(SceVopFchstatArgs *argp);
 
     int (*vop_whiteout)(SceVopWhiteoutArgs *argp);
     int (*vop_cleanup)(SceVopCleanupArgs *argp);

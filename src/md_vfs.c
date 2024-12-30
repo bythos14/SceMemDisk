@@ -17,7 +17,6 @@ int md_vfs_mount(SceVfsOpMountArgs *argp)
 	return 0;
 }
 
-// Callback function for vfs_umount
 int md_vfs_umount(SceVfsOpUmountArgs *argp)
 {
 	return 0x80010010;
@@ -27,22 +26,20 @@ int md_vfs_set_root(SceVfsOpSetRootArgs *argp)
 {
 	SceVfsVnode *vp = argp->vp;
 	vp->dd = NULL;
-	vp->type = SCE_VNODE_TYPE_DEVROOTDIR;
+	vp->type = SCE_VNODE_TYPE_ROOTDIR_DEVFS;
 	vp->state = SCE_VNODE_STATE_ACTIVE;
 	vp->mnt = argp->mnt;
 	vp->aclData[0] = vp->aclData[1] = 0;
 	vp->size = 0;
 
-	return 0; // Return success or handle as needed
+	return 0;
 }
 
 int md_vfs_init(SceVfsOpInitArgs *argp)
 {
-	// Empty function body
-	return 0; // Return success or handle as needed
+	return 0;
 }
 
-// Callback function for vfs_devctl
 int md_vfs_devctl(SceVfsOpDevctlArg *argp)
 {
 	const void *arg = argp->arg;
@@ -50,7 +47,7 @@ int md_vfs_devctl(SceVfsOpDevctlArg *argp)
 	void *buf = argp->buf;
 	SceSize bufLen = argp->bufLen;
 	switch (argp->cmd) {
-	case 1:
+	case SCE_MEMDISK_DEVCTL_ENABLE:
 		if ((arg == NULL) || (argLen != 4) || (buf == NULL) || (bufLen != 4)) {
 			return 0x80010016;
 		}
@@ -69,6 +66,9 @@ int md_vfs_devctl(SceVfsOpDevctlArg *argp)
 		}
 
 		((SceMemDiskEnableResult *)buf)->index = devIndex;
+		break;
+	case 0x1: // Used by Exfatfs to determine if a block device is read-only. Returning EUNSUP allows read-write mounting
+		return 0x80010030;
 	default:
 		return 0x80010013;
 	}
@@ -104,13 +104,12 @@ int md_vfs_open(SceVopOpenArgs *argp)
 
 exit:
 	mddev_unlock(dev);
-	return ret; // Return success or handle as needed
+	return ret;
 }
 
 int md_vfs_close(SceVopCloseArgs *argp)
 {
-	// Empty function body
-	return 0; // Return success or handle as needed
+	return 0;
 }
 
 int md_vfs_lookup(SceVopLookupArgs *argp)
@@ -146,7 +145,7 @@ int md_vfs_lookup(SceVopLookupArgs *argp)
 
 	*argp->vpp = vp;
 
-	return 0; // Return success or handle as needed
+	return 0;
 }
 
 SceSSize md_vfs_read(SceVopReadArgs *argp)
@@ -225,7 +224,7 @@ SceOff md_vfs_lseek(SceVopLseekArgs *argp)
 	}
 
 	switch (whence) {
-	case SCE_SEEK_SET: // Literal offset into the file
+	case SCE_SEEK_SET:
 		break;
 	case SCE_SEEK_CUR:
 		offset += file->position;
@@ -302,14 +301,12 @@ SceSSize md_vfs_pwrite(SceVopPwriteArgs *argp)
 
 int md_vfs_inactive(SceVopInactiveArgs *argp)
 {
-	// Empty function body
-	return 0; // Return success or handle as needed
+	return 0;
 }
 
 int md_vfs_sync(SceVopSyncArgs *argp)
 {
-	// Empty function body
-	return 0; // Return success or handle as needed
+	return 0;
 }
 
 static SceVfsInfo md_vfs_info = {

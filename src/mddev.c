@@ -238,7 +238,7 @@ SceSSize mddev_write(mddev_object *dev, const void *buf, SceUInt sector, SceSize
 
     SceUInt offset = sector * MDDEV_SECTOR_SIZE;
 
-    if ((offset + nBytes) >= dev->blockSize) {
+    if ((offset + nBytes) > dev->blockSize) {
         ret = 0x80010021;
         goto exit;
     }
